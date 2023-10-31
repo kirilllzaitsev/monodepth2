@@ -360,8 +360,9 @@ class Trainer:
 
     def calc_metrics(self, outputs, batch):
         _, depths = disp_to_depth_full(outputs)
-        gt = torchvision.transforms.Resize(depths.shape[2:], antialias=False)(
-            batch["depth_gt"]
+        gt = batch["depth_gt"]
+        depths = torchvision.transforms.Resize(gt.shape[2:], antialias=False)(
+            depths
         ).cpu()
         assert depths.max() > 1 and gt.max() > 1
 
