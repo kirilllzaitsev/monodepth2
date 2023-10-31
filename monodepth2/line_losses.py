@@ -90,6 +90,10 @@ def loss_lines(y_pred, ls, Ki):
     # Go over all images
     for i in range(len(ls)):
         lines = ls[i]
+
+        if len(lines) == 0:
+            continue
+
         if not isinstance(lines, torch.Tensor):
             lines = torch.tensor(lines).to(device)
 
