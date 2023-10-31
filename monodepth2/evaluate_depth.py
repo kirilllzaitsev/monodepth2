@@ -54,8 +54,15 @@ def batch_post_process_disparity(l_disp, r_disp):
 
 def evaluate(opt):
     """Evaluates a pretrained model using a specified test set"""
-    MIN_DEPTH = 1e-3
-    MAX_DEPTH = 80
+    if opt.ds == "kitti":
+        MIN_DEPTH = 1e-3
+        MAX_DEPTH = 80
+    elif opt.ds == "waymo":
+        MIN_DEPTH = 1e-3
+        MAX_DEPTH = 80
+    elif opt.ds == "argoverse":
+        MIN_DEPTH = 1e-3
+        MAX_DEPTH = 180  # 200m is the max depth in the dataset, but the depths are distorted due to resizing
 
     assert (
         sum((opt.eval_mono, opt.eval_stereo)) == 1
@@ -63,6 +70,9 @@ def evaluate(opt):
 
     if opt.ext_disp_to_eval is None:
         opt.load_weights_folder = os.path.expanduser(opt.load_weights_folder)
+        opt.use_df_head = (
+            True if "stiff_wolverine_3619" in opt.load_weights_folder else False
+        )
 
         assert os.path.isdir(
             opt.load_weights_folder
@@ -171,10 +181,19 @@ def evaluate(opt):
         )
         quit()
 
-    gt_path = os.path.join(splits_dir, opt.eval_split, "gt_depths.npz")
-    gt_depths = np.load(
-        gt_path, fix_imports=True, encoding="latin1", allow_pickle=True
-    )["data"]
+    if opt.ds == "kitti":
+        gt_path = os.path.join(splits_dir, opt.eval_split, "gt_depths.npz")
+        gt_depths = np.load(
+            gt_path, fix_imports=True, encoding="latin1", allow_pickle=True
+        )["data"]
+    elif opt.ds == "waymo":
+        gt_depths = np.load(
+            os.path.join(splits_dir, opt.eval_split, "gt_depths_waymo.npy")
+        )
+    elif opt.ds == "argoverse":
+        gt_depths = np.load(
+            os.path.join(splits_dir, opt.eval_split, "gt_depths_argoverse.npy")
+        )
 
     print("-> Evaluating")
 
@@ -245,10 +264,12 @@ def evaluate(opt):
     header = "\n  " + ("{:>8} | " * 7).format(
         "abs_rel", "sq_rel", "rmse", "rmse_log", "a1", "a2", "a3"
     )
-    res = ("&{: 8.3f}  " * 7).format(*mean_errors.tolist()) + "\\\\"
+    res = ("&{: 8.3f}  " * 7).format(*mean_errors.tolist())
     print(header)
     print(res)
-    with open(os.path.join(opt.load_weights_folder, "results.txt"), "a") as f:
+    with open(
+        os.path.join(opt.load_weights_folder, f"eval/results_{opt.ds}.txt"), "a"
+    ) as f:
         f.write(header + "\n")
         f.write(res + "\n")
     print("\n-> Done!")
@@ -261,7 +282,9 @@ def load_networks_for_eval(opt):
     encoder_dict = torch.load(encoder_path)
 
     encoder = networks.ResnetEncoder(opt.num_layers, False)
-    depth_decoder = networks.DepthDecoder(encoder.num_ch_enc)
+    depth_decoder = networks.DepthDecoder(
+        encoder.num_ch_enc, use_df_head=getattr(opt, "use_df_head", False)
+    )
 
     model_dict = encoder.state_dict()
     encoder.load_state_dict({k: v for k, v in encoder_dict.items() if k in model_dict})

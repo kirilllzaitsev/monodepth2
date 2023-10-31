@@ -45,6 +45,11 @@ class MonodepthOptions:
             default="eigen_zhou",
         )
         self.parser.add_argument(
+            "--ds",
+            choices=["kitti", "waymo", "argoverse"],
+            default="kitti",
+        )
+        self.parser.add_argument(
             "--num_layers",
             type=int,
             help="number of resnet layers",
@@ -149,6 +154,7 @@ class MonodepthOptions:
         self.parser.add_argument("--line_loss_scale", type=float, default=0.02)
         self.parser.add_argument("--use_modelip_loss", action="store_true")
         self.parser.add_argument("--modelip_loss_scale", type=float, default=1)
+        self.parser.add_argument("--use_df_rec_loss", action="store_true")
         self.parser.add_argument(
             "--weights_init",
             type=str,
