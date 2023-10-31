@@ -59,6 +59,7 @@ split: eigen_full
 use_df_rec_loss: true
 use_line_loss: true
 use_modelip_loss: true
+filter_lines: angle+length
 use_stereo: false
 v1_multiscale: false
 weights_init: pretrained
