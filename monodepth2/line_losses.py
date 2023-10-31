@@ -197,6 +197,9 @@ def loss_deeplsd_score(y_pred, df, df2, ls, Ki, Q, max_depth):
     for i in range(len(ls)):
         lines = ls[i]
 
+        if len(lines) == 0:
+            continue
+
         if not isinstance(lines, torch.Tensor):
             lines = torch.tensor(lines).to(device)
 

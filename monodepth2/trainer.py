@@ -55,6 +55,8 @@ class Trainer:
             self.exp.add_tag(f"filter_lines_{self.opt.filter_lines}")
         if self.opt.use_df_rec_loss:
             self.exp.add_tag(f"df_rec_loss")
+        if 'SLURM_JOB_ID' in os.environ:
+            print("SLURM_JOB_ID", os.environ['SLURM_JOB_ID'])
 
         # checking height and width are multiples of 32
         assert self.opt.height % 32 == 0, "'height' must be a multiple of 32"
@@ -877,6 +879,8 @@ class Trainer:
                 filtered_lines = filter_lines_by_angle(
                     filtered_lines, low_thresh=np.pi / 15, high_thresh=np.pi / 2.25
                 )
+            if len(filtered_lines) == 0:
+                print("no lines left after filtering")
             lines = filtered_lines
         if include_df:
             return lines, line_res["df"]
