@@ -390,7 +390,68 @@ class Trainer:
             fig,
             step=self.step,
         )
+
+        if self.opt.use_line_loss or self.opt.use_modelip_loss:
+            fig = self.plot_lines()
+
+            name = "preds/lines"
+            self.exp.log_figure(
+                name,
+                fig,
+                step=self.step,
+            )
+
         plt.close()
+
+    def plot_lines(self):
+        x = self.benchmark_batch[("color_aug", 0, 0)].to(self.device)
+        ls, df = self.get_lines(x, include_df=True)
+        x_other_side = self.benchmark_batch[("color_other_side", 0, 0)].to(self.device)
+        ls2, df2 = self.get_lines(x_other_side, include_df=True)
+
+        batch_size = len(x)
+        ncols = 2 + 2
+        fig, axs = plt.subplots(
+            batch_size,
+            ncols,
+            figsize=(max(batch_size * 5, 10), ncols * 5),
+        )
+        for i in range(batch_size):
+            if batch_size == 1:
+                ax_0 = axs[0]
+                ax_1 = axs[1]
+                ax_2 = axs[2]
+                ax_3 = axs[3]
+            else:
+                ax_0 = axs[i, 0]
+                ax_1 = axs[i, 1]
+                ax_2 = axs[i, 2]
+                ax_3 = axs[i, 3]
+            concat1 = np.zeros((self.opt.height, self.opt.width, 1))
+            for line in ls[i].astype("int"):
+                concat1 = cv2.line(
+                    concat1, tuple(line[0]), tuple(line[1]), (1, 1, 1), 2
+                )
+            concat_other_side = np.zeros((self.opt.height, self.opt.width, 1))
+            for line in ls2[i].astype("int"):
+                concat_other_side = cv2.line(
+                    concat_other_side, tuple(line[0]), tuple(line[1]), (1, 1, 1), 2
+                )
+            ax_0.imshow(concat1.squeeze())
+            ax_1.imshow(df[i].cpu().squeeze())
+            ax_2.imshow(concat_other_side.squeeze())
+            ax_3.imshow(df2[i].cpu().squeeze())
+
+            ax_0.axis("off")
+            ax_1.axis("off")
+            ax_2.axis("off")
+            ax_3.axis("off")
+            if i == 0:
+                ax_0.set_title("lines")
+                ax_1.set_title("df")
+                ax_2.set_title("lines other side")
+                ax_3.set_title("df other side")
+        return fig
 
     def process_batch(self, inputs):
         """Pass a minibatch through the network and generate images and losses"""
