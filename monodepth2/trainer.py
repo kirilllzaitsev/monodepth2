@@ -746,12 +746,21 @@ class Trainer:
         # df2 = torchvision.transforms.Resize(y_pred.shape[2:], antialias=False)(df2)
         # side=batch["side"]
         # img_path=batch["img_path"]
-        x = batch[("color_other_side", 0, 0)].to(self.device)
-        _, df2 = self.get_lines(x, include_df=True)
-        if len(df2.shape) == 3:
-            df2 = df2.unsqueeze(1)
-        if len(df.shape) == 3:
-            df = df.unsqueeze(1)
+        x_other_side = batch[("color_other_side", 0, 0)].to(self.device)
+        _, df2 = self.get_lines(x_other_side, include_df=True)
+
+        def prepare_df(df):
+            if len(df.shape) == 3:
+                df = df.unsqueeze(1)
+            return df
+
+        df = prepare_df(df)
+        df2 = prepare_df(df2)
+
+        df_pred = None
+        if self.opt.use_df_rec_loss:
+            df_pred = out[("df", 0)]
+            df_pred = prepare_df(df_pred)
 
         loss = loss_function(
             y_true=torchvision.transforms.Resize(y_pred.shape[2:], antialias=False)(
@@ -762,10 +771,12 @@ class Trainer:
             Ki=Ki,
             args=args,
             Q=Q,
+            df_true=df,
+            df_pred=df_pred,
+            include_df_rec_loss=self.opt.use_df_rec_loss,
             df1=df,
             df2=df2,
             include_only_lines=False,
-            include_df_rec_loss=False,
             include_df_proj_loss=True,
         )
         return loss
