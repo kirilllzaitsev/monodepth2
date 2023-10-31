@@ -358,18 +358,18 @@ class Trainer:
 
         self.model_lr_scheduler.step()
 
-    def calc_metrics(self, outputs, batch):
-        _, depths = disp_to_depth_full(outputs)
-        gt = batch["depth_gt"]
-        depths = torchvision.transforms.Resize(gt.shape[2:], antialias=False)(
-            depths
-        ).cpu()
-        assert depths.max() > 1 and gt.max() > 1
+    # def calc_metrics(self, outputs, batch):
+    #     _, depths = disp_to_depth_full(outputs, self.opt)
+    #     gt = batch["depth_gt"].cpu()
+    #     depths = torchvision.transforms.Resize(gt.shape[2:], antialias=False)(
+    #         depths
+    #     ).cpu()
+    #     assert depths.max() > 1 and gt.max() > 1
 
-        return calc_metrics(
-            gt,
-            depths,
-        )
+    #     return calc_metrics(
+    #         gt,
+    #         depths,
+    #     )
 
     def log_metric(self, exp, metrics: dict, step: int, prefix: str = None):
         for k, v in metrics.items():
@@ -379,8 +379,9 @@ class Trainer:
             exp.log_metric(k, v, step=step)
 
     def do_benchmark(self):
-        outputs, losses = self.process_batch(self.benchmark_batch)
-        _, depths = disp_to_depth_full(outputs)
+        outputs, _ = self.process_batch(self.benchmark_batch)
+        # _, depths = disp_to_depth_full(outputs, self.opt)
+        depths = outputs[("depth", 0, 0)].cpu()
 
         fig = plot_output_depths(depths, self.benchmark_batch)
         name = "preds/sample"
@@ -514,8 +515,9 @@ class Trainer:
 
             self.do_benchmark()
             outputs, _ = self.process_batch(self.benchmark_batch)
-            metrics = self.calc_metrics(outputs, self.benchmark_batch)
-            self.log_metric(self.exp, metrics, self.step, prefix="benchmark")
+            # the metrics below is calculated in compute_depth_losses and put in losses
+            # metrics = self.calc_metrics(outputs, self.benchmark_batch)
+            # self.log_metric(self.exp, metrics, self.step, prefix="benchmark")
             self.log_metric(self.exp, losses, self.step, prefix="benchmark")
 
             del inputs, outputs, losses
@@ -702,6 +704,7 @@ class Trainer:
             line_loss = self.compute_line_loss(inputs, outputs)
             total_loss += self.line_loss_scale * line_loss
             losses["line_loss"] = line_loss
+
         if self.opt.use_modelip_loss:
             modelip_loss = self.compute_modelip_loss(inputs, outputs)
             total_loss += self.modelip_loss_scale * modelip_loss["modelip_loss"]
@@ -712,7 +715,8 @@ class Trainer:
         return losses
 
     def compute_modelip_loss(self, batch, out):
-        _, y_pred = disp_to_depth_full(out)
+        # _, y_pred = disp_to_depth_full(out, self.opt)
+        y_pred = out[("depth", 0, 0)]
         y_pred = y_pred.to(self.device)
         K = batch["intrinsics"].to(self.device)
         Ki = torch.inverse(K)
@@ -787,7 +791,8 @@ class Trainer:
     def compute_line_loss(self, batch, out):
         x = batch[("color_aug", 0, 0)].to(self.device)
         lines = self.get_lines(x)
-        _, depths = disp_to_depth_full(out)
+        # _, depths = disp_to_depth_full(out, self.opt)
+        depths = out[("depth", 0, 0)]
         loss_line = self.line_loss(depths, lines)
         return loss_line
 
@@ -874,8 +879,8 @@ class Trainer:
                         self.step,
                     )
                     self.exp.log_image(
+                        inputs[("color", frame_id, s)][j].data.permute(1,2,0).cpu(),
                         f"{mode}/color_{frame_id}_{s}/{j}",
-                        inputs[("color", frame_id, s)][j].data,
                         step=self.step,
                     )
                     if s == 0 and frame_id != 0:
@@ -885,8 +890,8 @@ class Trainer:
                             self.step,
                         )
                         self.exp.log_image(
+                            outputs[("color", frame_id, s)][j].data.permute(1,2,0).cpu(),
                             f"{mode}/color_pred_{frame_id}_{s}/{j}",
-                            outputs[("color", frame_id, s)][j].data,
                             step=self.step,
                         )
 
@@ -896,8 +901,8 @@ class Trainer:
                     self.step,
                 )
                 self.exp.log_image(
+                    normalize_image(outputs[("disp", s)][j]).permute(1,2,0).cpu(),
                     f"{mode}/disp_{s}/{j}",
-                    normalize_image(outputs[("disp", s)][j]),
                     step=self.step,
                 )
 
