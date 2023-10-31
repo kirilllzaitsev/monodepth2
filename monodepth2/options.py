@@ -156,6 +156,9 @@ class MonodepthOptions:
         self.parser.add_argument("--modelip_loss_scale", type=float, default=1)
         self.parser.add_argument("--use_df_rec_loss", action="store_true")
         self.parser.add_argument(
+            "--filter_lines", choices=["angle", "length", "angle+length"], default=None
+        )
+        self.parser.add_argument(
             "--weights_init",
             type=str,
             help="pretrained or scratch",

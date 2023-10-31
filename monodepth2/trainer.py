@@ -1,5 +1,6 @@
 from __future__ import absolute_import, division, print_function
 
+import cv2
 import matplotlib
 
 matplotlib.use("Agg")
@@ -83,7 +84,9 @@ class Trainer:
         self.parameters_to_train += list(self.models["encoder"].parameters())
 
         self.models["depth"] = networks.DepthDecoder(
-            self.models["encoder"].num_ch_enc, self.opt.scales
+            self.models["encoder"].num_ch_enc,
+            self.opt.scales,
+            use_df_head=self.opt.use_df_rec_loss,
         )
         self.models["depth"].to(self.device)
         self.parameters_to_train += list(self.models["depth"].parameters())
@@ -859,9 +862,21 @@ class Trainer:
 
     def get_lines(self, x, include_df=False):
         line_res = get_deeplsd_pred(self.dlsd, x)
+        lines = line_res["lines"]
+        if self.opt.filter_lines is not None:
+            filtered_lines = lines
+            if "length" in self.opt.filter_lines:
+                filtered_lines = filter_lines_by_length(
+                    lines, use_min_length=True, min_length=20
+                )
+            if "angle" in self.opt.filter_lines:
+                filtered_lines = filter_lines_by_angle(
+                    filtered_lines, low_thresh=np.pi / 15, high_thresh=np.pi / 2.25
+                )
+            lines = filtered_lines
         if include_df:
-            return line_res["lines"], line_res["df"]
-        return line_res["lines"]
+            return lines, line_res["df"]
+        return lines
 
     def compute_depth_losses(self, inputs, outputs, losses):
         """Compute depth metrics, to allow monitoring during training
@@ -940,7 +955,7 @@ class Trainer:
                         self.step,
                     )
                     self.exp.log_image(
-                        inputs[("color", frame_id, s)][j].data.permute(1,2,0).cpu(),
+                        inputs[("color", frame_id, s)][j].data.permute(1, 2, 0).cpu(),
                         f"{mode}/color_{frame_id}_{s}/{j}",
                         step=self.step,
                     )
@@ -951,7 +966,9 @@ class Trainer:
                             self.step,
                         )
                         self.exp.log_image(
-                            outputs[("color", frame_id, s)][j].data.permute(1,2,0).cpu(),
+                            outputs[("color", frame_id, s)][j]
+                            .data.permute(1, 2, 0)
+                            .cpu(),
                             f"{mode}/color_pred_{frame_id}_{s}/{j}",
                             step=self.step,
                         )
@@ -962,7 +979,7 @@ class Trainer:
                     self.step,
                 )
                 self.exp.log_image(
-                    normalize_image(outputs[("disp", s)][j]).permute(1,2,0).cpu(),
+                    normalize_image(outputs[("disp", s)][j]).permute(1, 2, 0).cpu(),
                     f"{mode}/disp_{s}/{j}",
                     step=self.step,
                 )
@@ -1045,3 +1062,48 @@ class Trainer:
             self.model_optimizer.load_state_dict(optimizer_dict)
         else:
             print("Cannot find Adam weights so Adam is randomly initialized")
+
+
+def filter_lines_by_length(batched_lines, min_length=10, use_min_length=False):
+    if not isinstance(batched_lines, list):
+        batched_lines = [batched_lines]
+
+    filtered_lines = []
+    for lines in batched_lines:
+        line_lengths = np.sqrt(
+            (lines[:, 0, 0] - lines[:, 1, 0]) ** 2
+            + (lines[:, 0, 1] - lines[:, 1, 1]) ** 2
+        )
+        len_mean = np.mean(line_lengths)
+        new_lines = []
+        for idx, line in enumerate(lines):
+            length = line_lengths[idx]
+            if use_min_length:
+                if length > min_length:
+                    new_lines.append(line)
+            else:
+                if length > len_mean / 4:
+                    new_lines.append(line)
+        filtered_lines.append(np.array(new_lines))
+    return filtered_lines if len(filtered_lines) > 1 else filtered_lines[0]
+
+
+def filter_lines_by_angle(
+    batched_lines, low_thresh=np.pi / 10, high_thresh=np.pi / 2.5
+):
+    if not isinstance(batched_lines, list):
+        batched_lines = [batched_lines]
+
+    filtered_lines = []
+    for lines in batched_lines:
+        line_slopes = np.abs(
+            (lines[:, 1, 1] - lines[:, 0, 1]) / (lines[:, 1, 0] - lines[:, 0, 0] + 1e-6)
+        )
+        line_angles = np.arctan(line_slopes)
+        new_lines = []
+
+        for idx, line in enumerate(lines):
+            if low_thresh < line_angles[idx] < high_thresh:
+                new_lines.append(line)
+        filtered_lines.append(np.array(new_lines))
+    return filtered_lines if len(filtered_lines) > 1 else filtered_lines[0]
