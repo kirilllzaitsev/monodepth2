@@ -23,20 +23,23 @@ def plot_output_depths(depths, batch):
     return fig
 
 
-def disp_to_depth_full(outputs):
-    pred_disps = []
-    pred_disps.append(outputs[("disp", 0)].cpu()[:, 0].detach())
+def disp_to_depth_full(outputs, opt):
+    # pred_disps = []
+    # pred_disps.append(outputs[("disp", 0)].cpu()[:, 0].detach())
+    pred_disp, _ = disp_to_depth(outputs[("disp", 0)], opt.min_depth, opt.max_depth)
+    pred_disps = pred_disp.cpu()[:, 0]
+    depths = (1 / pred_disps).unsqueeze(1)
 
-    pred_disps = torch.concatenate(pred_disps)
-    depths = []
-    STEREO_SCALE_FACTOR = 5.4
-    for idx in range(len(pred_disps)):
-        # disp_resized = cv2.resize(pred_disps[idx], (1216, 352))
-        disp_resized = pred_disps[idx]
-        depth = STEREO_SCALE_FACTOR / disp_resized
-        depth = torch.clip(depth, 0, 80)
-        depths.append(depth)
-    depths = torch.stack(depths, dim=0).unsqueeze(1)
+    # pred_disps = torch.concatenate(pred_disps)
+    # depths = []
+    # STEREO_SCALE_FACTOR = 5.4
+    # for idx in range(len(pred_disps)):
+    #     # disp_resized = cv2.resize(pred_disps[idx], (1216, 352))
+    #     disp_resized = pred_disps[idx]
+    #     depth = STEREO_SCALE_FACTOR / disp_resized
+    #     depth = torch.clip(depth, 0, 80)
+    #     depths.append(depth)
+    # depths = torch.stack(depths, dim=0).unsqueeze(1)
     return pred_disps, depths
 
 
