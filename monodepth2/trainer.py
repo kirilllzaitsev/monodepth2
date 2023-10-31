@@ -51,6 +51,10 @@ class Trainer:
         self.exp.add_tag("overfit" if self.opt.do_overfit else "full")
         if self.opt.use_df_rec_loss:
             self.exp.add_tag("df_rec_loss")
+        if self.opt.filter_lines is not None:
+            self.exp.add_tag(f"filter_lines_{self.opt.filter_lines}")
+        if self.opt.use_df_rec_loss:
+            self.exp.add_tag(f"df_rec_loss")
 
         # checking height and width are multiples of 32
         assert self.opt.height % 32 == 0, "'height' must be a multiple of 32"
