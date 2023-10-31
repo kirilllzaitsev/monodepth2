@@ -863,6 +863,7 @@ class Trainer:
             if "/" in l:
                 l = l.replace("/", "/scale_")
             writer.add_scalar("{}".format(l), v, self.step)
+            self.exp.log_metric(f"{mode}/{l}", v, step=self.step)
 
         for j in range(min(4, self.opt.batch_size)):  # write a maxmimum of four images
             for s in self.opt.scales:
@@ -872,17 +873,32 @@ class Trainer:
                         inputs[("color", frame_id, s)][j].data,
                         self.step,
                     )
+                    self.exp.log_image(
+                        f"{mode}/color_{frame_id}_{s}/{j}",
+                        inputs[("color", frame_id, s)][j].data,
+                        step=self.step,
+                    )
                     if s == 0 and frame_id != 0:
                         writer.add_image(
                             "color_pred_{}_{}/{}".format(frame_id, s, j),
                             outputs[("color", frame_id, s)][j].data,
                             self.step,
                         )
+                        self.exp.log_image(
+                            f"{mode}/color_pred_{frame_id}_{s}/{j}",
+                            outputs[("color", frame_id, s)][j].data,
+                            step=self.step,
+                        )
 
                 writer.add_image(
                     "disp_{}/{}".format(s, j),
                     normalize_image(outputs[("disp", s)][j]),
                     self.step,
+                )
+                self.exp.log_image(
+                    f"{mode}/disp_{s}/{j}",
+                    normalize_image(outputs[("disp", s)][j]),
+                    step=self.step,
                 )
 
                 if self.opt.predictive_mask:
