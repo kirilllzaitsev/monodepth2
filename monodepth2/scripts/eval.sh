@@ -4,7 +4,7 @@
 
 data_path=/kitti_raw_data
 
-exp_name=stiff_wolverine_3619  # experiment name on comet, https://www.comet.com/kirilllzaitsev/layout-aware-monodepth/59e313a8f5de4d37899eaa988655bfaa
+exp_name=stiff_wolverine_3619  # name of an experiment on comet that contains trained model artifacts ("Assets"->"models/"), https://www.comet.com/kirilllzaitsev/layout-aware-monodepth/59e313a8f5de4d37899eaa988655bfaa
 exp_path=/tmp/artifacts/${exp_name}
 eval_ds=kitti
 # eval_ds=waymo

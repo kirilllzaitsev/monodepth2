@@ -1,5 +1,14 @@
 # Monodepth2
 
+## Quickstart
+
+1. Prepare the data as in the original Monodepth2 repo.
+2. pip install git+https://github.com/kirilllzaitsev/layout_aware_monodepth
+3. Update `data_path` in `monodepth2/scripts/train.sh`
+4. `cd monodepth2 && bash scripts/train.sh`
+
+## Original instructions
+
 This is the reference PyTorch implementation for training and testing depth estimation models using the method described in
 
 > **Digging into Self-Supervised Monocular Depth Prediction**
