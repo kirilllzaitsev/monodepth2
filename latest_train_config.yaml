@@ -1,16 +1,20 @@
 avg_reprojection: false
-batch_size: 1
+batch_size: 8
 data_path: /kitti_raw_data
 dataset: kitti
 disable_automasking: false
 disable_median_scaling: false
 disparity_smoothness: 0.001
-do_overfit: true
+do_overfit: false
+ds: kitti
 eval_eigen_to_benchmark: false
 eval_mono: false
 eval_out_dir: null
 eval_split: eigen
 eval_stereo: false
+exp_disabled: true
+exp_tags:
+- debug
 ext_disp_to_eval: null
 frame_ids:
 - 0
@@ -18,12 +22,14 @@ frame_ids:
 - 1
 height: 192
 learning_rate: 0.0001
+line_loss_scale: 0.02
 load_weights_folder: null
 log_dir: ~/tmp
-log_frequency: 1
+log_frequency: 50
 max_depth: 100.0
 min_depth: 0.1
 model_name: mono_model
+modelip_loss_scale: 1
 models_to_load:
 - encoder
 - depth
@@ -32,24 +38,27 @@ models_to_load:
 no_cuda: false
 no_eval: false
 no_ssim: false
-num_epochs: 50
+num_epochs: 15
 num_layers: 18
-num_workers: 0
+num_workers: 8
 png: true
 pose_model_input: pairs
 pose_model_type: separate_resnet
 post_process: false
 pred_depth_scale_factor: 1
 predictive_mask: false
-save_frequency: 50
+save_frequency: 1
 save_pred_disps: false
 scales:
 - 0
 - 1
 - 2
 - 3
-scheduler_step_size: 50
+scheduler_step_size: 15
 split: eigen_full
+use_df_rec_loss: true
+use_line_loss: true
+use_modelip_loss: true
 use_stereo: false
 v1_multiscale: false
 weights_init: pretrained

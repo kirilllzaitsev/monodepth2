@@ -6,14 +6,15 @@ disable_automasking: false
 disable_median_scaling: false
 disparity_smoothness: 0.001
 do_overfit: false
+ds: kitti
 eval_eigen_to_benchmark: false
 eval_mono: true
-eval_out_dir: /tmp/artifacts/grumpy_board_7469/eval
+eval_out_dir: /tmp/artifacts/stiff_wolverine_3619/eval
 eval_split: eigen
 eval_stereo: false
 exp_disabled: false
 exp_tags: []
-ext_disp_to_eval: null
+ext_disp_to_eval: /tmp/artifacts/stiff_wolverine_3619/eval/kitti/pred_disps.npy
 frame_ids:
 - 0
 - -1
@@ -21,7 +22,7 @@ frame_ids:
 height: 192
 learning_rate: 0.0001
 line_loss_scale: 0.02
-load_weights_folder: /tmp/artifacts/grumpy_board_7469
+load_weights_folder: /tmp/artifacts/stiff_wolverine_3619
 log_dir: ~/tmp
 log_frequency: 250
 max_depth: 100.0
