@@ -80,7 +80,6 @@ class MonodepthOptions:
             help="disparity smoothness weight",
             default=1e-3,
         )
-        self.parser.add_argument("--exp_tags", nargs="*", default=[])
         self.parser.add_argument(
             "--scales",
             nargs="+",
@@ -150,6 +149,7 @@ class MonodepthOptions:
         )
         self.parser.add_argument("--do_overfit", action="store_true")
         self.parser.add_argument("--exp_disabled", action="store_true")
+        self.parser.add_argument("--exp_tags", nargs="*", default=[])
         self.parser.add_argument("--use_line_loss", action="store_true")
         self.parser.add_argument("--line_loss_scale", type=float, default=0.02)
         self.parser.add_argument("--use_modelip_loss", action="store_true")

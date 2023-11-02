@@ -28,7 +28,7 @@ from tensorboardX import SummaryWriter
 from torch.utils.data import DataLoader
 from utils import *
 
-from layout_aware_monodepth.line_utils import get_deeplsd_pred, load_deeplsd
+from layout_aware_monodepth.line_utils import filter_lines_by_angle, filter_lines_by_length, get_deeplsd_pred, load_deeplsd
 from layout_aware_monodepth.losses import LineLoss
 from layout_aware_monodepth.metrics import calc_metrics
 from layout_aware_monodepth.pipeline_utils import create_tracking_exp
@@ -44,7 +44,6 @@ plt.ioff()
 class Trainer:
     def __init__(self, options):
         self.opt = options
-        self.log_path = os.path.join(self.opt.log_dir, self.opt.model_name)
         self.exp = create_tracking_exp(options)
         self.exp.add_tag("monodepth2")
         self.exp.add_tag("resnet18")
@@ -55,8 +54,9 @@ class Trainer:
             self.exp.add_tag(f"filter_lines_{self.opt.filter_lines}")
         if self.opt.use_df_rec_loss:
             self.exp.add_tag(f"df_rec_loss")
-        if 'SLURM_JOB_ID' in os.environ:
-            print("SLURM_JOB_ID", os.environ['SLURM_JOB_ID'])
+        if "SLURM_JOB_ID" in os.environ:
+            print("SLURM_JOB_ID", os.environ["SLURM_JOB_ID"])
+        self.log_path = os.path.join(self.opt.log_dir, self.exp.get_key())
 
         # checking height and width are multiples of 32
         assert self.opt.height % 32 == 0, "'height' must be a multiple of 32"
@@ -367,6 +367,10 @@ class Trainer:
 
         self.model_lr_scheduler.step()
 
+        # Enforce the minimum learning rate
+        for param_group in self.model_optimizer.param_groups:
+            param_group["lr"] = max(param_group["lr"], 5e-6)
+
     # def calc_metrics(self, outputs, batch):
     #     _, depths = disp_to_depth_full(outputs, self.opt)
     #     gt = batch["depth_gt"].cpu()
@@ -399,6 +403,7 @@ class Trainer:
             fig,
             step=self.step,
         )
+        plt.close()
 
         if self.opt.use_line_loss or self.opt.use_modelip_loss:
             fig = self.plot_lines()
@@ -410,7 +415,7 @@ class Trainer:
                 step=self.step,
             )
 
-        plt.close()
+            plt.close()
 
     def plot_lines(self):
         x = self.benchmark_batch[("color_aug", 0, 0)].to(self.device)
@@ -584,7 +589,7 @@ class Trainer:
             self.log("val", inputs, outputs, losses)
 
             self.do_benchmark()
-            outputs, _ = self.process_batch(self.benchmark_batch)
+            # outputs, _ = self.process_batch(self.benchmark_batch)
             # the metrics below is calculated in compute_depth_losses and put in losses
             # metrics = self.calc_metrics(outputs, self.benchmark_batch)
             # self.log_metric(self.exp, metrics, self.step, prefix="benchmark")
@@ -807,6 +812,9 @@ class Trainer:
         loss = torch.tensor(0.0).to(self.device)
         x = batch[("color_aug", 0, 0)].to(self.device)
         ls, df = self.get_lines(x, include_df=True)
+        df_max = 5.0
+        df /= df_max
+        
         # Build the transformation matrices
         P1 = batch["P1"].to(self.device)
         P2 = batch["P2"].to(self.device)
@@ -1070,48 +1078,3 @@ class Trainer:
             self.model_optimizer.load_state_dict(optimizer_dict)
         else:
             print("Cannot find Adam weights so Adam is randomly initialized")
-
-
-def filter_lines_by_length(batched_lines, min_length=10, use_min_length=False):
-    if not isinstance(batched_lines, list):
-        batched_lines = [batched_lines]
-
-    filtered_lines = []
-    for lines in batched_lines:
-        line_lengths = np.sqrt(
-            (lines[:, 0, 0] - lines[:, 1, 0]) ** 2
-            + (lines[:, 0, 1] - lines[:, 1, 1]) ** 2
-        )
-        len_mean = np.mean(line_lengths)
-        new_lines = []
-        for idx, line in enumerate(lines):
-            length = line_lengths[idx]
-            if use_min_length:
-                if length > min_length:
-                    new_lines.append(line)
-            else:
-                if length > len_mean / 4:
-                    new_lines.append(line)
-        filtered_lines.append(np.array(new_lines))
-    return filtered_lines if len(filtered_lines) > 1 else filtered_lines[0]
-
-
-def filter_lines_by_angle(
-    batched_lines, low_thresh=np.pi / 10, high_thresh=np.pi / 2.5
-):
-    if not isinstance(batched_lines, list):
-        batched_lines = [batched_lines]
-
-    filtered_lines = []
-    for lines in batched_lines:
-        line_slopes = np.abs(
-            (lines[:, 1, 1] - lines[:, 0, 1]) / (lines[:, 1, 0] - lines[:, 0, 0] + 1e-6)
-        )
-        line_angles = np.arctan(line_slopes)
-        new_lines = []
-
-        for idx, line in enumerate(lines):
-            if low_thresh < line_angles[idx] < high_thresh:
-                new_lines.append(line)
-        filtered_lines.append(np.array(new_lines))
-    return filtered_lines if len(filtered_lines) > 1 else filtered_lines[0]
