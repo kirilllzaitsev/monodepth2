@@ -7,9 +7,9 @@ import torchmetrics
 import torchvision
 
 
-def loss_L1(y_true, y_pred):
+def loss_L1(y_true, y_pred, ymin=1e-3, ymax=80):
     # mask out the invalid values (either zero or max_value)
-    mask = (~torch.isnan(y_true)) * (y_true > 0).float() * (y_true < 1).float()
+    mask = (~torch.isnan(y_true)) * (y_true > ymin).float() * (y_true < ymax).float()
     num_pixels_total = mask.size(2) * mask.size(3)
     num_pixels_visible = torch.sum(mask, dim=(2, 3))
 
@@ -22,10 +22,10 @@ def loss_L1(y_true, y_pred):
 
 
 # taken from https://medium.com/mlearning-ai/monocular-depth-estimation-using-u-net-6f149fc34077 and masked out
-def loss_edge(y_true, y_pred):
+def loss_edge(y_true, y_pred, ymin=1e-3, ymax=80):
     # More strict mask, masks out everything that neighbors with an invalid value
     # For KITTI, this masks out basically everything
-    mask = (~torch.isnan(y_true)) * (y_true > 0).float() * (y_true < 1).float()
+    mask = (~torch.isnan(y_true)) * (y_true > ymin).float() * (y_true < ymax).float()
     device = y_true.get_device()
     zx = torch.zeros((mask.size(0), mask.size(1), mask.size(2), 1)).to(device)
     zy = torch.zeros((mask.size(0), mask.size(1), 1, mask.size(3))).to(device)
@@ -47,8 +47,8 @@ def loss_edge(y_true, y_pred):
 
 # According to https://en.wikipedia.org/wiki/Structural_similarity
 # Taken from https://medium.com/mlearning-ai/monocular-depth-estimation-using-u-net-6f149fc34077 and masked out
-def loss_ssim(y_true, y_pred):
-    mask = (~torch.isnan(y_true)) * (y_true > 0).float() * (y_true < 1).float()
+def loss_ssim(y_true, y_pred, ymin=1e-3, ymax=80):
+    mask = (~torch.isnan(y_true)) * (y_true > ymin).float() * (y_true < ymax).float()
     num_pixels_total = mask.size(2) * mask.size(3)
     num_pixels_visible = torch.sum(mask, dim=(2, 3))
 
@@ -354,6 +354,8 @@ def loss_function(
     include_df_rec_loss=True,
     include_df_proj_loss=True,
 ):
+    if not (y_true.max() > 1 and y_pred.max() > 1):
+        print("WARN! y_true.max() = ", y_true.max(), "y_pred.max() = ", y_pred.max())
     # Device
     device = y_pred.get_device()
 
@@ -422,6 +424,8 @@ def loss_function(
 
     if include_df_proj_loss:
         assert df1 is not None and df2 is not None and Q is not None
+        if not (df1.max() > 1 and df2.max() > 1):
+            print("WARN! df2.max() = ", df2.max(), "df1.max() = ", df1.max())
         # 6. Loss by reprojecting to right view and measuring DeepLSD score
         # Linie są głównie tutaj.
         l_df2, l_col_L2_rep, l_col_L1_rep = loss_deeplsd_score(
