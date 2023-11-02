@@ -28,7 +28,12 @@ from tensorboardX import SummaryWriter
 from torch.utils.data import DataLoader
 from utils import *
 
-from layout_aware_monodepth.line_utils import filter_lines_by_angle, filter_lines_by_length, get_deeplsd_pred, load_deeplsd
+from layout_aware_monodepth.line_utils import (
+    filter_lines_by_angle,
+    filter_lines_by_length,
+    get_deeplsd_pred,
+    load_deeplsd,
+)
 from layout_aware_monodepth.losses import LineLoss
 from layout_aware_monodepth.metrics import calc_metrics
 from layout_aware_monodepth.pipeline_utils import create_tracking_exp
@@ -56,7 +61,8 @@ class Trainer:
             self.exp.add_tag(f"df_rec_loss")
         if "SLURM_JOB_ID" in os.environ:
             print("SLURM_JOB_ID", os.environ["SLURM_JOB_ID"])
-        self.log_path = os.path.join(self.opt.log_dir, self.exp.get_key())
+        self.log_path = os.path.join(self.opt.log_dir, self.exp.name)
+        os.makedirs(self.log_path, exist_ok=True)
 
         # checking height and width are multiples of 32
         assert self.opt.height % 32 == 0, "'height' must be a multiple of 32"
@@ -812,9 +818,7 @@ class Trainer:
         loss = torch.tensor(0.0).to(self.device)
         x = batch[("color_aug", 0, 0)].to(self.device)
         ls, df = self.get_lines(x, include_df=True)
-        df_max = 5.0
-        df /= df_max
-        
+
         # Build the transformation matrices
         P1 = batch["P1"].to(self.device)
         P2 = batch["P2"].to(self.device)
@@ -856,7 +860,7 @@ class Trainer:
             Ki=Ki,
             args=args,
             Q=Q,
-            df_true=df,
+            df_true=df / 5.0,
             df_pred=df_pred,
             include_df_rec_loss=self.opt.use_df_rec_loss,
             df1=df,
