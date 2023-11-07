@@ -61,7 +61,7 @@ class Trainer:
             self.exp.add_tag(f"df_rec_loss")
         if "SLURM_JOB_ID" in os.environ:
             print("SLURM_JOB_ID", os.environ["SLURM_JOB_ID"])
-        self.log_path = os.path.join(self.opt.log_dir, self.exp.name)
+        self.log_path = os.path.join(self.opt.log_dir, self.exp.name or "")
         os.makedirs(self.log_path, exist_ok=True)
 
         # checking height and width are multiples of 32
@@ -112,15 +112,19 @@ class Trainer:
                 )
 
                 self.models["pose_encoder"].to(self.device)
-                self.parameters_to_train += list(
-                    self.models["pose_encoder"].parameters()
-                )
 
                 self.models["pose"] = networks.PoseDecoder(
                     self.models["pose_encoder"].num_ch_enc,
                     num_input_features=1,
                     num_frames_to_predict_for=2,
                 )
+                if self.opt.pretrained_pose_weights:
+                    print("loading pretrained pose model")
+                    self.load_pose_model()
+                else:
+                    self.parameters_to_train += list(
+                        self.models["pose_encoder"].parameters()
+                    )
 
             elif self.opt.pose_model_type == "shared":
                 self.models["pose"] = networks.PoseDecoder(
@@ -156,7 +160,10 @@ class Trainer:
             self.parameters_to_train, self.opt.learning_rate
         )
         self.model_lr_scheduler = optim.lr_scheduler.StepLR(
-            self.model_optimizer, self.opt.scheduler_step_size, 0.1
+            self.model_optimizer,
+            self.opt.scheduler_step_size,
+            0.1,
+            verbose=not self.opt.do_overfit,
         )
 
         if self.opt.load_weights_folder is not None:
@@ -226,7 +233,7 @@ class Trainer:
 
         if self.opt.do_overfit:
             train_dataset = torch.utils.data.Subset(
-                train_dataset, list(range(110, 111))
+                train_dataset, list(range(110, 110 + self.opt.batch_size))
             )
             val_dataset = train_dataset
         else:
@@ -355,9 +362,12 @@ class Trainer:
             duration = time.time() - before_op_time
 
             # log less frequently after the first 500 steps to save time & disk space
-            early_phase = batch_idx % self.opt.log_frequency == 0 and self.step < (
-                self.opt.log_frequency * 10
-            )
+            if self.opt.do_overfit:
+                early_phase = self.epoch % self.opt.log_frequency == 0
+            else:
+                early_phase = batch_idx % self.opt.log_frequency == 0 and self.step < (
+                    self.opt.log_frequency * 10
+                )
             late_phase = self.step % (self.opt.log_frequency * 10) == 0
 
             if early_phase or late_phase:
@@ -1082,3 +1092,15 @@ class Trainer:
             self.model_optimizer.load_state_dict(optimizer_dict)
         else:
             print("Cannot find Adam weights so Adam is randomly initialized")
+
+    def load_pose_model(self):
+        for n in ["pose", "pose_encoder"]:
+            print("Loading {} weights...".format(n))
+            path = os.path.join(self.opt.pretrained_pose_weights, "{}.pth".format(n))
+            model_dict = self.models[n].state_dict()
+            pretrained_dict = torch.load(path)
+            pretrained_dict = {
+                k: v for k, v in pretrained_dict.items() if k in model_dict
+            }
+            model_dict.update(pretrained_dict)
+            self.models[n].load_state_dict(model_dict)
