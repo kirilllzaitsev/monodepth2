@@ -5,13 +5,10 @@ import os
 import cv2
 import numpy as np
 import torch
-from monodepth2 import datasets, networks
-from monodepth2.layers import disp_to_depth
 from monodepth2.options import MonodepthOptions
-from monodepth2.utils import readlines
-from torch.utils.data import DataLoader
 
-cv2.setNumThreads(0)  # This speeds up evaluation 5x on our unix systems (OpenCV 3.3.1)
+from layout_aware_monodepth.benchmarking.utils import run_eval_single_exp
+
 
 
 splits_dir = os.path.join(os.path.dirname(__file__), "splits")
@@ -69,75 +66,19 @@ def evaluate(opt):
     ), "Please choose mono or stereo evaluation by setting either --eval_mono or --eval_stereo"
 
     if opt.ext_disp_to_eval is None:
-        opt.load_weights_folder = os.path.expanduser(opt.load_weights_folder)
-        opt.use_df_head = (
-            True if "stiff_wolverine_3619" in opt.load_weights_folder else False
+        waymo_save_dir = (
+            os.path.join(opt.load_weights_folder, "eval", "waymo")
+            if opt.ds == "waymo"
+            else None
         )
-
-        assert os.path.isdir(
-            opt.load_weights_folder
-        ), "Cannot find a folder at {}".format(opt.load_weights_folder)
-
-        print("-> Loading weights from {}".format(opt.load_weights_folder))
-
-        filenames = readlines(
-            os.path.join(splits_dir, opt.eval_split, "test_files.txt")
+        assert opt.exp_name is not None
+        _, pred_disps = run_eval_single_exp(
+            opt.ds,
+            opt.exp_name,
+            waymo_save_dir=waymo_save_dir,
+            root_dir="/mnt/wext/msc_studies/monodepth_project/artifacts",
+            overwrite_preds=opt.overwrite_preds,
         )
-        encoder_dict, encoder, depth_decoder = load_networks_for_eval(opt)
-
-        dataset = datasets.KITTIRAWDataset(
-            opt.data_path,
-            filenames,
-            encoder_dict["height"],
-            encoder_dict["width"],
-            [0],
-            4,
-            is_train=False,
-            img_ext=".png" if opt.png else ".jpg",
-        )
-        dataloader = DataLoader(
-            dataset,
-            16,
-            shuffle=False,
-            num_workers=opt.num_workers,
-            pin_memory=True,
-            drop_last=False,
-        )
-
-        pred_disps = []
-
-        print(
-            "-> Computing predictions with size {}x{}".format(
-                encoder_dict["width"], encoder_dict["height"]
-            )
-        )
-
-        with torch.no_grad():
-            for data in dataloader:
-                input_color = data[("color", 0, 0)].cuda()
-
-                if opt.post_process:
-                    # Post-processed results require each image to have two forward passes
-                    input_color = torch.cat(
-                        (input_color, torch.flip(input_color, [3])), 0
-                    )
-
-                output = depth_decoder(encoder(input_color))
-
-                pred_disp, _ = disp_to_depth(
-                    output[("disp", 0)], opt.min_depth, opt.max_depth
-                )
-                pred_disp = pred_disp.cpu()[:, 0].numpy()
-
-                if opt.post_process:
-                    N = pred_disp.shape[0] // 2
-                    pred_disp = batch_post_process_disparity(
-                        pred_disp[:N], pred_disp[N:, :, ::-1]
-                    )
-
-                pred_disps.append(pred_disp)
-
-        pred_disps = np.concatenate(pred_disps)
 
     else:
         # Load predictions from file
@@ -152,11 +93,11 @@ def evaluate(opt):
             pred_disps = pred_disps[eigen_to_benchmark_ids]
 
     if opt.save_pred_disps:
-        output_path = os.path.join(
+        output_path_depth = os.path.join(
             opt.load_weights_folder, "disps_{}_split.npy".format(opt.eval_split)
         )
-        print("-> Saving predicted disparities to ", output_path)
-        np.save(output_path, pred_disps)
+        print("-> Saving predicted disparities to ", output_path_depth)
+        np.save(output_path_depth, pred_disps)
 
     if opt.no_eval:
         print("-> Evaluation disabled. Done.")
@@ -210,13 +151,33 @@ def evaluate(opt):
     errors = []
     ratios = []
 
-    for i in range(pred_disps.shape[0]):
+    assert len(pred_disps) == len(gt_depths)
+
+    for i in range(len(pred_disps)):
         gt_depth = gt_depths[i]
         gt_height, gt_width = gt_depth.shape[:2]
 
         pred_disp = pred_disps[i]
         pred_disp = cv2.resize(pred_disp, (gt_width, gt_height))
         pred_depth = 1 / pred_disp
+
+        if opt.save_pred_png:
+            output_path_depth = os.path.join(
+                opt.load_weights_folder,
+                "eval",
+                opt.ds,
+                "depth",
+                "{:010d}.png".format(i),
+            )
+            output_path_disp = output_path_depth.replace("depth/", "disp/")
+            for p in [output_path_depth, output_path_disp]:
+                os.makedirs(os.path.dirname(p), exist_ok=True)
+            # if os.path.exists(output_path):
+            #     print("-> {} already exists, aborting".format(output_path))
+            #     break
+            print("-> Saving predicted depth to ", output_path_depth)
+            cv2.imwrite(output_path_depth, (pred_depth * 255).astype(np.uint16))
+            cv2.imwrite(output_path_disp, (pred_disp * 255).astype(np.uint16))
 
         if opt.eval_split == "eigen":
             mask = np.logical_and(gt_depth > MIN_DEPTH, gt_depth < MAX_DEPTH)
@@ -268,23 +229,23 @@ def evaluate(opt):
     print(header)
     print(res)
     with open(
-        os.path.join(opt.load_weights_folder, f"eval/results_{opt.ds}.txt"), "a"
+        os.path.join(opt.load_weights_folder, f"eval/results_{opt.ds}.txt"), "w"
     ) as f:
         f.write(header + "\n")
         f.write(res + "\n")
     print("\n-> Done!")
 
 
-def load_networks_for_eval(opt):
+def load_networks_for_eval(opt, model_name):
     encoder_path = os.path.join(opt.load_weights_folder, "encoder.pth")
     decoder_path = os.path.join(opt.load_weights_folder, "depth.pth")
 
     encoder_dict = torch.load(encoder_path)
 
-    encoder = networks.ResnetEncoder(opt.num_layers, False)
-    depth_decoder = networks.DepthDecoder(
-        encoder.num_ch_enc, use_df_head=getattr(opt, "use_df_head", False)
-    )
+    if model_name == "monodepth2":
+        encoder, depth_decoder = init_monodepth2_networks(opt)
+    else:
+        encoder, depth_decoder = init_sfmnext_networks(opt)
 
     model_dict = encoder.state_dict()
     encoder.load_state_dict({k: v for k, v in encoder_dict.items() if k in model_dict})
@@ -297,6 +258,69 @@ def load_networks_for_eval(opt):
     return encoder_dict, encoder, depth_decoder
 
 
+def init_monodepth2_networks(opt):
+    from monodepth2 import networks
+
+    encoder = networks.ResnetEncoder(opt.num_layers, False)
+    depth_decoder = networks.DepthDecoder(
+        encoder.num_ch_enc, use_df_head=getattr(opt, "use_df_head", False)
+    )
+    return encoder, depth_decoder
+
+
+def init_sfmnext_networks(opt):
+    from sfmnext import networks
+
+    if opt.backbone in ["resnet", "resnet_lite"]:
+        encoder = networks.ResnetEncoderDecoder(
+            num_layers=opt.num_layers,
+            num_features=opt.num_features,
+            model_dim=opt.model_dim,
+        )
+    elif opt.backbone == "resnet18_lite":
+        encoder = networks.LiteResnetEncoderDecoder(model_dim=opt.model_dim)
+    elif opt.backbone == "eff_b5":
+        encoder = networks.BaseEncoder.build(
+            num_features=opt.num_features, model_dim=opt.model_dim
+        )
+    else:
+        encoder = networks.Unet(
+            pretrained=(not opt.load_pretrained_model),
+            backbone=opt.backbone,
+            in_channels=3,
+            num_classes=opt.model_dim,
+            decoder_channels=opt.dec_channels,
+        )
+
+    if opt.backbone.endswith("_lite"):
+        depth_decoder = networks.Lite_Depth_Decoder_QueryTr(
+            in_channels=opt.model_dim,
+            patch_size=opt.patch_size,
+            dim_out=opt.dim_out,
+            embedding_dim=opt.model_dim,
+            query_nums=opt.query_nums,
+            num_heads=4,
+            min_val=opt.min_depth,
+            max_val=opt.max_depth,
+            use_df_head=False,
+        )
+    else:
+        depth_decoder = networks.Depth_Decoder_QueryTr(
+            in_channels=opt.model_dim,
+            patch_size=opt.patch_size,
+            dim_out=opt.dim_out,
+            embedding_dim=opt.model_dim,
+            query_nums=opt.query_nums,
+            num_heads=4,
+            min_val=opt.min_depth,
+            max_val=opt.max_depth,
+            use_df_head=getattr(opt, "use_df_head", False),
+        )
+
+    return encoder, depth_decoder
+
+
 if __name__ == "__main__":
+    cv2.setNumThreads(0)  # This speeds up evaluation 5x on our unix systems (OpenCV 3.3.1)
     options = MonodepthOptions()
     evaluate(options.parse())
