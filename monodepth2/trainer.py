@@ -34,6 +34,7 @@ from layout_aware_monodepth.line_utils import (
     get_deeplsd_pred,
     load_deeplsd,
 )
+from layout_aware_monodepth.logging_utils import log_metric, log_params_to_exp
 from layout_aware_monodepth.losses import LineLoss
 from layout_aware_monodepth.metrics import calc_metrics
 from layout_aware_monodepth.pipeline_utils import create_tracking_exp
@@ -50,6 +51,11 @@ class Trainer:
     def __init__(self, options):
         self.opt = options
         self.exp = create_tracking_exp(options)
+        log_params_to_exp(
+            self.exp,
+            vars(options),
+            "options",
+        )
         self.exp.add_tag("monodepth2")
         self.exp.add_tag("resnet18")
         self.exp.add_tag("overfit" if self.opt.do_overfit else "full")
@@ -121,10 +127,6 @@ class Trainer:
                 if self.opt.pretrained_pose_weights:
                     print("loading pretrained pose model")
                     self.load_pose_model()
-                else:
-                    self.parameters_to_train += list(
-                        self.models["pose_encoder"].parameters()
-                    )
 
             elif self.opt.pose_model_type == "shared":
                 self.models["pose"] = networks.PoseDecoder(
@@ -137,7 +139,11 @@ class Trainer:
                 )
 
             self.models["pose"].to(self.device)
-            self.parameters_to_train += list(self.models["pose"].parameters())
+            if not self.opt.pretrained_pose_weights:
+                self.parameters_to_train += list(
+                    self.models["pose_encoder"].parameters()
+                )
+                self.parameters_to_train += list(self.models["pose"].parameters())
 
         if self.opt.predictive_mask:
             assert (

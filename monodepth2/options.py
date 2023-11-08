@@ -156,6 +156,10 @@ class MonodepthOptions:
         self.parser.add_argument("--modelip_loss_scale", type=float, default=1)
         self.parser.add_argument("--use_df_rec_loss", action="store_true")
         self.parser.add_argument("--pretrained_pose_weights", default=None)
+        self.parser.add_argument("--model_name_general", default="monodepth2")
+        self.parser.add_argument("--save_pred_png", action="store_true")
+        self.parser.add_argument("--overwrite_preds", action="store_true")
+        self.parser.add_argument("--exp_name", default=None)
         self.parser.add_argument(
             "--filter_lines", choices=["angle", "length", "angle+length"], default=None
         )
