@@ -988,10 +988,12 @@ class Trainer:
             df_pred = out[("df", 0)]
             df_pred = prepare_df(df_pred)
 
+        y_true = torchvision.transforms.Resize(y_pred.shape[2:], antialias=False)(
+            batch["depth_gt"]
+        )
+
         loss = loss_function(
-            y_true=torchvision.transforms.Resize(y_pred.shape[2:], antialias=False)(
-                batch["depth_gt"]
-            ),
+            y_true=y_true,
             y_pred=y_pred,
             ls=ls,
             Ki=Ki,
@@ -1002,7 +1004,7 @@ class Trainer:
             include_df_rec_loss=self.opt.use_df_rec_loss,
             df1=df,
             df2=df2,
-            include_only_lines=False,
+            do_ssl=True,
             include_df_proj_loss=True,
         )
         return loss
