@@ -350,7 +350,7 @@ def loss_function(
     df1=None,
     df2=None,
     Q=None,
-    include_only_lines=False,
+    do_ssl=False,
     include_df_rec_loss=True,
     include_df_proj_loss=True,
 ):
@@ -445,7 +445,8 @@ def loss_function(
             + (w8 * res["l_col_L1_rep"])
         )
 
-    if not include_only_lines:
+    if not do_ssl:
+        # supervised losses
         # 1. Masked L1 depth loss
         # No lines.
         l_depth = loss_L1(y_true, y_pred)
