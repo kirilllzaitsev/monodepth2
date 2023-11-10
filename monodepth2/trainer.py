@@ -1222,14 +1222,33 @@ class Trainer:
         else:
             print("Cannot find Adam weights so Adam is randomly initialized")
 
-    def load_pose_model(self):
+    def load_pose_model(self, models, weights_dir):
         for n in ["pose", "pose_encoder"]:
             print("Loading {} weights...".format(n))
-            path = os.path.join(self.opt.pretrained_pose_weights, "{}.pth".format(n))
-            model_dict = self.models[n].state_dict()
+            path = os.path.join(weights_dir, "{}.pth".format(n))
+            model_dict = models[n].state_dict()
             pretrained_dict = torch.load(path)
             pretrained_dict = {
                 k: v for k, v in pretrained_dict.items() if k in model_dict
             }
             model_dict.update(pretrained_dict)
-            self.models[n].load_state_dict(model_dict)
+            models[n].load_state_dict(model_dict)
+
+
+def load_pose_resnets(opt, device):
+    models = {}
+    models["pose_encoder"] = networks.ResnetEncoder(
+        opt.num_layers,
+        opt.weights_init == "pretrained",
+        num_input_images=2,
+    )
+
+    models["pose"] = networks.PoseDecoder(
+        models["pose_encoder"].num_ch_enc,
+        num_input_features=1,
+        num_frames_to_predict_for=2,
+    )
+    models["pose_encoder"].to(device)
+    models["pose"].to(device)
+
+    return models
