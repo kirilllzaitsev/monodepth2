@@ -439,6 +439,15 @@ class Trainer:
 
             plt.close()
 
+        if self.opt.use_line_reproj_loss:
+            fig = self.plot_reproj_lines()
+            name = "preds/reproj_lines"
+            self.exp.log_figure(
+                name,
+                fig,
+                step=self.step,
+            )
+            plt.close()
 
     def plot_reproj_lines(self):
         outputs, _ = self.process_batch(self.benchmark_batch)
