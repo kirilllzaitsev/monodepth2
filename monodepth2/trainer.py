@@ -870,6 +870,7 @@ class Trainer:
 
         total_loss /= self.num_scales
 
+        # the rest gets computed only for the highest scale
         if self.opt.use_line_loss:
             line_loss = self.compute_line_loss(inputs, outputs)
             total_loss += self.line_loss_scale * line_loss
@@ -877,9 +878,16 @@ class Trainer:
 
         if self.opt.use_modelip_loss:
             modelip_loss = self.compute_modelip_loss(inputs, outputs)
-            total_loss += self.modelip_loss_scale * modelip_loss["modelip_loss"]
+            total_loss += self.opt.modelip_loss_scale * modelip_loss["modelip_loss"]
             for k, v in modelip_loss.items():
                 losses[k] = v
+
+        if self.opt.use_line_reproj_loss:
+            line_reproj_res = self.compute_line_reproj_loss(inputs, outputs)
+            total_loss += self.opt.line_reproj_loss_scale * line_reproj_res["line_reproj_loss"]
+            for k, v in line_reproj_res.items():
+                if "_loss" in k:
+                    losses[k] = v
 
         losses["loss"] = total_loss
         return losses
