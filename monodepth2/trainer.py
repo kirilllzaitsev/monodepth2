@@ -439,6 +439,70 @@ class Trainer:
 
             plt.close()
 
+
+    def plot_reproj_lines(self):
+        outputs, _ = self.process_batch(self.benchmark_batch)
+        reproj_res = self.compute_line_reproj_loss(self.benchmark_batch, outputs)
+        
+        batch_size = self.opt.batch_size
+        ncols = 5
+        fig, axs = plt.subplots(
+            batch_size,
+            ncols,
+            figsize=(max(batch_size * 5, 10), ncols * 5),
+        )
+        for i, closest_res in enumerate(reproj_res['res']['closest_res_batch']):
+            if batch_size == 1:
+                ax_0 = axs[0]
+                ax_1 = axs[1]
+                ax_2 = axs[2]
+                ax_3 = axs[3]
+                ax_4 = axs[4]
+            else:
+                ax_0 = axs[i, 0]
+                ax_1 = axs[i, 1]
+                ax_2 = axs[i, 2]
+                ax_3 = axs[i, 3]
+                ax_4 = axs[i, 4]
+
+            paired_lines, avg_distances = (
+                closest_res["paired_lines"],
+                closest_res["avg_distances"],
+            )
+            reproj_paired = plot_line_pairs(
+                paired_lines["reproj"],
+                paired_lines["true"],
+                take_n=30,
+                hw=(self.opt.height, self.opt.width),
+                avg_distances=avg_distances,
+                font_scale=2,
+                no_text=True,
+            )
+            # image, lines_t, lines_t_1, reprojection
+            image = self.benchmark_batch["color_aug", 0, 0][i].cpu()
+            hw = (self.opt.height, self.opt.width)
+            lines_t = plot_lines(lines=reproj_res['res']["lines_t"][i], hw=hw)
+            lines_t_1 = plot_lines(lines=reproj_res['res']["lines_t_1"][i], hw=hw)
+            ax_0.imshow(image.permute(1, 2, 0))
+            ax_1.imshow(lines_t)
+            ax_2.imshow(lines_t_1)
+            ax_3.imshow(plot_lines(reproj_res['res']['repr_lines'][i], hw=hw))
+            ax_4.imshow(reproj_paired)
+
+            ax_0.axis("off")
+            ax_1.axis("off")
+            ax_2.axis("off")
+            ax_3.axis("off")
+            ax_4.axis("off")
+            
+            if i == 0:
+                ax_0.set_title("image")
+                ax_1.set_title("lines_t")
+                ax_2.set_title("lines_t_1")
+                ax_3.set_title("reproj")
+                ax_4.set_title("reproj (top-N distant)")
+        return fig
+
     def plot_lines(self):
         x = self.benchmark_batch[("color_aug", 0, 0)].to(self.device)
         ls, df = self.get_lines(x, include_df=True)
