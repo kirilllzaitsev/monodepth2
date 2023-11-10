@@ -884,6 +884,46 @@ class Trainer:
         losses["loss"] = total_loss
         return losses
 
+    def compute_line_reproj_loss(self, batch, out):
+        y_pred = out[("depth", 0, 0)].to(self.device)
+        K = torch.zeros((len(y_pred), 4, 4)).to(self.device)
+        K[...,:3, :3] = batch["intrinsics"]
+        K[..., 3, 3] = 1
+        Ki = torch.pinverse(K)
+        # backproj only onto the next frame
+        pose = out[("cam_T_cam", 0, 1)]
+
+        x_t = batch[("color_aug", 0, 0)].to(self.device)
+        lines_t = self.get_lines(x_t)
+        x_t_1 = batch[("color_aug", 1, 0)].to(self.device)
+        lines_t_1 = self.get_lines(x_t_1)
+
+        repr_lines = reproject_lines_batch(lines_t, pose, K, Ki, y_pred)
+        closest_res_batch = find_closest_lines_to_src_batch(repr_lines, lines_t_1)
+
+        line_dist_loss = torch.tensor(0.0).to(self.device)
+        line_orient_loss = torch.tensor(0.0).to(self.device)
+        for closest_res in closest_res_batch:
+            line_dist_loss += line_distance_loss((closest_res["avg_distances"]))
+            line_orient_loss += line_orientation_loss(
+                closest_res["paired_lines"]["reproj"],
+                closest_res["paired_lines"]["true"],
+            )
+        # 1 line_dist_loss ~ 5-15
+        # 1 line_orient_loss ~ 0.05-0.1
+        loss = 0.2*line_dist_loss + 10*line_orient_loss
+        return {
+            "line_reproj_loss": loss,
+            "line_dist_loss": line_dist_loss,
+            "line_orient_loss": line_orient_loss,
+            "res": {
+                "lines_t": lines_t,
+                "lines_t_1": lines_t_1,
+                "repr_lines": repr_lines,
+                "closest_res_batch": closest_res_batch,
+            }
+        }
+
     def compute_modelip_loss(self, batch, out):
         # _, y_pred = disp_to_depth_full(out, self.opt)
         y_pred = out[("depth", 0, 0)]
