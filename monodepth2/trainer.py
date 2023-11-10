@@ -10,33 +10,44 @@ import json
 import os
 import time
 
-import comet_ml
 import datasets
 import matplotlib.pyplot as plt
-import networks
 import numpy as np
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 import torchvision
-from IPython import embed
-from kitti_utils import *
-from layers import *
+from monodepth2 import networks
+from monodepth2.layers import (
+    SSIM,
+    BackprojectDepth,
+    Project3D,
+    compute_depth_errors,
+    disp_to_depth,
+    get_smooth_loss,
+    transformation_from_parameters,
+)
 from monodepth2.line_losses import loss_function
-from monodepth2.vis_utils import disp_to_depth_full, plot_output_depths
+from monodepth2.utils import normalize_image, readlines, sec_to_hm_str
+from monodepth2.vis_utils import plot_output_depths
 from tensorboardX import SummaryWriter
 from torch.utils.data import DataLoader
-from utils import *
 
 from layout_aware_monodepth.line_utils import (
     filter_lines_by_angle,
     filter_lines_by_length,
+    find_closest_lines_to_src_batch,
     get_deeplsd_pred,
+    line_distance_loss,
+    line_orientation_loss,
     load_deeplsd,
+    plot_line_pairs,
+    plot_lines,
+    reproject_lines_batch,
 )
-from layout_aware_monodepth.logging_utils import log_metric, log_params_to_exp
+from layout_aware_monodepth.logging_utils import log_params_to_exp
 from layout_aware_monodepth.losses import LineLoss
-from layout_aware_monodepth.metrics import calc_metrics
 from layout_aware_monodepth.pipeline_utils import create_tracking_exp
 
 # Copyright Niantic 2019. Patent Pending. All rights reserved.
@@ -65,6 +76,8 @@ class Trainer:
             self.exp.add_tag(f"filter_lines_{self.opt.filter_lines}")
         if self.opt.use_df_rec_loss:
             self.exp.add_tag(f"df_rec_loss")
+        if self.opt.use_line_reproj_loss:
+            self.exp.add_tag(f"line_reproj_loss")
         if "SLURM_JOB_ID" in os.environ:
             print("SLURM_JOB_ID", os.environ["SLURM_JOB_ID"])
         self.log_path = os.path.join(self.opt.log_dir, self.exp.name or "")
@@ -73,9 +86,6 @@ class Trainer:
         # checking height and width are multiples of 32
         assert self.opt.height % 32 == 0, "'height' must be a multiple of 32"
         assert self.opt.width % 32 == 0, "'width' must be a multiple of 32"
-
-        if self.opt.use_modelip_loss:
-            self.modelip_loss_scale = options.modelip_loss_scale
 
         self.models = {}
         self.parameters_to_train = []
@@ -126,7 +136,9 @@ class Trainer:
                 )
                 if self.opt.pretrained_pose_weights:
                     print("loading pretrained pose model")
-                    self.load_pose_model()
+                    self.load_pose_model(
+                        self.models, weights_dir=self.opt.pretrained_pose_weights
+                    )
 
             elif self.opt.pose_model_type == "shared":
                 self.models["pose"] = networks.PoseDecoder(
@@ -326,7 +338,11 @@ class Trainer:
             self.line_loss_scale = options.line_loss_scale
         self.exp.add_tags(options.exp_tags)
 
-        if options.use_line_loss or options.use_modelip_loss:
+        if (
+            options.use_line_loss
+            or options.use_modelip_loss
+            or options.use_line_reproj_loss
+        ):
             self.dlsd = load_deeplsd().to(self.device)
 
     def set_train(self):
