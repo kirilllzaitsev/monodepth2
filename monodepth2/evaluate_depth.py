@@ -9,8 +9,6 @@ from monodepth2.options import MonodepthOptions
 
 from layout_aware_monodepth.benchmarking.utils import run_eval_single_exp
 
-
-
 splits_dir = os.path.join(os.path.dirname(__file__), "splits")
 
 # Models which were trained with stereo supervision were trained with a nominal
@@ -56,7 +54,7 @@ def evaluate(opt):
         MAX_DEPTH = 80
     elif opt.ds == "waymo":
         MIN_DEPTH = 1e-3
-        MAX_DEPTH = 80
+        MAX_DEPTH = 75
     elif opt.ds == "argoverse":
         MIN_DEPTH = 1e-3
         MAX_DEPTH = 180  # 200m is the max depth in the dataset, but the depths are distorted due to resizing
@@ -161,24 +159,6 @@ def evaluate(opt):
         pred_disp = cv2.resize(pred_disp, (gt_width, gt_height))
         pred_depth = 1 / pred_disp
 
-        if opt.save_pred_png:
-            output_path_depth = os.path.join(
-                opt.load_weights_folder,
-                "eval",
-                opt.ds,
-                "depth",
-                "{:010d}.png".format(i),
-            )
-            output_path_disp = output_path_depth.replace("depth/", "disp/")
-            for p in [output_path_depth, output_path_disp]:
-                os.makedirs(os.path.dirname(p), exist_ok=True)
-            # if os.path.exists(output_path):
-            #     print("-> {} already exists, aborting".format(output_path))
-            #     break
-            print("-> Saving predicted depth to ", output_path_depth)
-            cv2.imwrite(output_path_depth, (pred_depth * 255).astype(np.uint16))
-            cv2.imwrite(output_path_disp, (pred_disp * 255).astype(np.uint16))
-
         if opt.eval_split == "eigen":
             mask = np.logical_and(gt_depth > MIN_DEPTH, gt_depth < MAX_DEPTH)
 
@@ -197,6 +177,7 @@ def evaluate(opt):
         else:
             mask = gt_depth > 0
 
+        pred_depth_to_save = pred_depth
         pred_depth = pred_depth[mask]
         gt_depth = gt_depth[mask]
 
@@ -205,11 +186,32 @@ def evaluate(opt):
             ratio = np.median(gt_depth) / np.median(pred_depth)
             ratios.append(ratio)
             pred_depth *= ratio
+            pred_depth_to_save *= ratio
 
         pred_depth[pred_depth < MIN_DEPTH] = MIN_DEPTH
         pred_depth[pred_depth > MAX_DEPTH] = MAX_DEPTH
 
         errors.append(compute_errors(gt_depth, pred_depth))
+
+        if opt.save_pred_png:
+            output_path_depth = os.path.join(
+                opt.load_weights_folder,
+                "eval",
+                opt.ds,
+                "depth",
+                "{:010d}.png".format(i),
+            )
+            output_path_disp = output_path_depth.replace("depth/", "disp/")
+            for p in [output_path_depth, output_path_disp]:
+                os.makedirs(os.path.dirname(p), exist_ok=True)
+            # if os.path.exists(output_path):
+            #     print("-> {} already exists, aborting".format(output_path))
+            #     break
+            pred_depth_to_save[pred_depth_to_save < MIN_DEPTH] = MIN_DEPTH
+            pred_depth_to_save[pred_depth_to_save > MAX_DEPTH] = MAX_DEPTH
+            print("-> Saving predicted depth to ", output_path_depth.replace(".png", ".npy"))
+            np.save(output_path_depth.replace(".png", ".npy"), pred_depth_to_save)
+            np.save(output_path_disp.replace(".png", ".npy"), pred_disp)
 
     if not opt.disable_median_scaling:
         ratios = np.array(ratios)
@@ -236,7 +238,7 @@ def evaluate(opt):
     print("\n-> Done!")
 
 
-def load_networks_for_eval(opt, model_name):
+def load_networks_for_eval(opt, model_name, as_dict=False):
     encoder_path = os.path.join(opt.load_weights_folder, "encoder.pth")
     decoder_path = os.path.join(opt.load_weights_folder, "depth.pth")
 
@@ -251,10 +253,14 @@ def load_networks_for_eval(opt, model_name):
     encoder.load_state_dict({k: v for k, v in encoder_dict.items() if k in model_dict})
     depth_decoder.load_state_dict(torch.load(decoder_path))
 
-    encoder.cuda()
     encoder.eval()
-    depth_decoder.cuda()
     depth_decoder.eval()
+    if as_dict:
+        return {
+            "encoder": encoder,
+            "depth_decoder": depth_decoder,
+            "encoder_dict": encoder_dict,
+        }
     return encoder_dict, encoder, depth_decoder
 
 
@@ -321,6 +327,8 @@ def init_sfmnext_networks(opt):
 
 
 if __name__ == "__main__":
-    cv2.setNumThreads(0)  # This speeds up evaluation 5x on our unix systems (OpenCV 3.3.1)
+    cv2.setNumThreads(
+        0
+    )  # This speeds up evaluation 5x on our unix systems (OpenCV 3.3.1)
     options = MonodepthOptions()
     evaluate(options.parse())
