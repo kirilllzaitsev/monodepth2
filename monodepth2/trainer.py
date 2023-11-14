@@ -59,9 +59,9 @@ plt.ioff()
 
 
 class Trainer:
-    def __init__(self, options):
+    def __init__(self, options, disable_exp=False):
         self.opt = options
-        self.exp = create_tracking_exp(options)
+        self.exp = create_tracking_exp(options, force_disabled=disable_exp)
         log_params_to_exp(
             self.exp,
             vars(options),
@@ -69,15 +69,7 @@ class Trainer:
         )
         self.exp.add_tag("monodepth2")
         self.exp.add_tag("resnet18")
-        self.exp.add_tag("overfit" if self.opt.do_overfit else "full")
-        if self.opt.use_df_rec_loss:
-            self.exp.add_tag("df_rec_loss")
-        if self.opt.filter_lines is not None:
-            self.exp.add_tag(f"filter_lines_{self.opt.filter_lines}")
-        if self.opt.use_df_rec_loss:
-            self.exp.add_tag(f"df_rec_loss")
-        if self.opt.use_line_reproj_loss:
-            self.exp.add_tag(f"line_reproj_loss")
+        self.log_common_tags()
         if "SLURM_JOB_ID" in os.environ:
             print("SLURM_JOB_ID", os.environ["SLURM_JOB_ID"])
         self.log_path = os.path.join(self.opt.log_dir, self.exp.name or "")
@@ -335,7 +327,6 @@ class Trainer:
         if options.use_line_loss:
             self.exp.add_tag("line_loss")
             self.line_loss = LineLoss()
-            self.line_loss_scale = options.line_loss_scale
         self.exp.add_tags(options.exp_tags)
 
         if (
@@ -344,6 +335,21 @@ class Trainer:
             or options.use_line_reproj_loss
         ):
             self.dlsd = load_deeplsd().to(self.device)
+
+    def log_common_tags(self):
+        self.exp.add_tag("overfit" if self.opt.do_overfit else "full")
+        if self.opt.use_df_rec_loss:
+            self.exp.add_tag("df_rec_loss")
+        if self.opt.filter_lines is not None:
+            self.exp.add_tag(f"filter_lines_{self.opt.filter_lines}")
+        if self.opt.use_df_rec_loss:
+            self.exp.add_tag(f"df_rec_loss")
+        if self.opt.use_line_reproj_loss:
+            self.exp.add_tag(f"line_reproj_loss")
+        if self.opt.pretrained_pose_weights:
+            self.exp.add_tag(f"pretrained_pose")
+        if self.opt.tune_params:
+            self.exp.add_tag(f"tune_hyperparams")
 
     def set_train(self):
         """Convert all models to training mode"""
@@ -365,6 +371,27 @@ class Trainer:
             # if (self.epoch + 1) % self.opt.save_frequency == 0:
             if not self.opt.do_overfit:
                 self.save_model(self.epoch)
+
+    def tune_params(self, trial):
+        import optuna
+        self.__init__(self.opt)
+        self.opt.line_reproj_loss_scale = trial.suggest_float(
+            "line_reproj_loss_scale", 0.001, 0.1
+        )
+        self.epoch = 0
+        self.step = 0
+        self.start_time = time.time()
+        losses = []
+        for self.epoch in range(3):
+            loss = self.run_epoch()
+            losses.append(loss)
+
+            trial.report(loss, self.epoch)
+            # Handle pruning based on the intermediate value.
+            if trial.should_prune():
+                raise optuna.exceptions.TrialPruned()
+
+        return np.mean(losses)
 
     def run_epoch(self):
         """Run a single epoch of training and validation"""
@@ -408,6 +435,8 @@ class Trainer:
         # Enforce the minimum learning rate
         for param_group in self.model_optimizer.param_groups:
             param_group["lr"] = max(param_group["lr"], 5e-6)
+
+        return losses["loss"].item()
 
     # def calc_metrics(self, outputs, batch):
     #     _, depths = disp_to_depth_full(outputs, self.opt)
@@ -503,7 +532,6 @@ class Trainer:
                 font_scale=2,
                 no_text=True,
             )
-            # image, lines_t, lines_t_1, reprojection
             image = self.benchmark_batch["color_aug", 0, 0][i].cpu()
             hw = (self.opt.height, self.opt.width)
             lines_t = plot_lines(lines=reproj_res['res']["lines_t"][i], hw=hw)
@@ -889,21 +917,21 @@ class Trainer:
         # the rest gets computed only for the highest scale
         if self.opt.use_line_loss:
             line_loss = self.compute_line_loss(inputs, outputs)
-            total_loss += self.line_loss_scale * line_loss
-            losses["line_loss"] = line_loss
+            total_loss += self.opt.line_loss_scale * line_loss
+            losses["line_loss"] = self.opt.line_loss_scale * line_loss
 
         if self.opt.use_modelip_loss:
             modelip_loss = self.compute_modelip_loss(inputs, outputs)
             total_loss += self.opt.modelip_loss_scale * modelip_loss["modelip_loss"]
             for k, v in modelip_loss.items():
-                losses[k] = v
+                losses[k] = self.opt.modelip_loss_scale * v
 
         if self.opt.use_line_reproj_loss:
             line_reproj_res = self.compute_line_reproj_loss(inputs, outputs)
             total_loss += self.opt.line_reproj_loss_scale * line_reproj_res["line_reproj_loss"]
             for k, v in line_reproj_res.items():
                 if "_loss" in k:
-                    losses[k] = v
+                    losses[k] = self.opt.line_reproj_loss_scale * v
 
         losses["loss"] = total_loss
         return losses
